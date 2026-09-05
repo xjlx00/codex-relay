@@ -13,9 +13,18 @@
 | Base URL | `https://relay.yanero.top/v1` |
 | API Key | 自己的 `userN.txt` 中的 `cr_...` 密钥 |
 | 默认模型 | `gpt-6-astra` |
+| 默认推理档位 | `medium`（中档） |
 | API 类型 | Responses |
 
 可以用 CC Switch 管理这个配置；不要求使用 CC Switch、Claude Code 或原生 Codex。只支持 Chat Completions 的客户端不能直接使用此版本。
+
+## Windows 桌面版接入注意事项
+
+用户级配置默认位于 `%USERPROFILE%\.codex\config.toml`；若指定了 `CODEX_HOME`，以实际配置目录为准。使用 TXT 中的自定义 provider 配置时，顶层模型/档位设置放在 `[model_providers.yanero_relay]` 之前，与已有配置合并，不重复添加同名项。不要把 TXT 的分隔说明或 Markdown 链接格式写进 TOML。
+
+在 Windows 搜索“编辑账户的环境变量”，新增用户变量 `CODEX_RELAY_API_KEY`，值为自己的完整个人密钥。完全退出并重新打开 Codex，新建任务检查 `gpt-6-astra / medium`。若进程仍读不到新变量，可注销 Windows 后重新登录。PowerShell 的 `$env:CODEX_RELAY_API_KEY=...` 只影响该终端及其随后启动的子进程，不保证从桌面图标打开的应用能读取。
+
+已有验证涵盖网关 Responses、流式响应和客户端函数往返；尚未完成 Codex 桌面版所有工具与功能的端到端实测。配置字段正确不代表所有桌面功能均已验证兼容。参考：[OpenAI 自定义 provider 配置](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers)。
 
 ## Python 文本调用
 
@@ -28,7 +37,7 @@ import httpx
 r = httpx.post(
     "https://relay.yanero.top/v1/responses",
     headers={"Authorization": "Bearer " + os.environ["CODEX_RELAY_API_KEY"]},
-    json={"model": "gpt-6-astra", "input": "请简要介绍这个项目。"},
+    json={"model": "gpt-6-astra", "reasoning": {"effort": "medium"}, "input": "请简要介绍这个项目。"},
     timeout=750,
 )
 r.raise_for_status()
