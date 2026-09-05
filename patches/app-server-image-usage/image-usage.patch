@@ -1,0 +1,366 @@
+diff --git a/codex-rs/analytics/src/analytics_client_tests.rs b/codex-rs/analytics/src/analytics_client_tests.rs
+index 5736abe..aa70c25 100644
+--- a/codex-rs/analytics/src/analytics_client_tests.rs
++++ b/codex-rs/analytics/src/analytics_client_tests.rs
+@@ -5274,6 +5274,7 @@ async fn image_generation_events_preserve_transparent_background_metadata() {
+             transparent_background,
+             failure: None,
+             saved_path: None,
++            usage: None,
+             imagegen_request_id: None,
+         });
+ 
+@@ -5419,6 +5420,7 @@ async fn turn_event_counts_completed_tool_items() {
+             transparent_background: None,
+             failure: None,
+             saved_path: None,
++            usage: None,
+             imagegen_request_id: Some("req-imagegen-123".to_string()),
+         }),
+     ];
+diff --git a/codex-rs/app-server-protocol/src/protocol/thread_history.rs b/codex-rs/app-server-protocol/src/protocol/thread_history.rs
+index 965a30d..edac883 100644
+--- a/codex-rs/app-server-protocol/src/protocol/thread_history.rs
++++ b/codex-rs/app-server-protocol/src/protocol/thread_history.rs
+@@ -859,6 +859,7 @@ impl ThreadHistoryBuilder {
+             transparent_background: None,
+             failure: None,
+             saved_path: None,
++            usage: None,
+             imagegen_request_id: None,
+         });
+         self.upsert_item_in_current_turn(item);
+@@ -873,6 +874,7 @@ impl ThreadHistoryBuilder {
+             transparent_background: payload.transparent_background,
+             failure: payload.failure.clone(),
+             saved_path: payload.saved_path.clone(),
++            usage: None,
+             imagegen_request_id: None,
+         });
+         self.upsert_item_in_current_turn(item);
+@@ -2181,6 +2183,7 @@ mod tests {
+                         transparent_background: Some(true),
+                         failure: None,
+                         saved_path: Some(saved_path.clone()),
++                        usage: None,
+                         imagegen_request_id: None,
+                     },
+                 )),
+@@ -2214,6 +2217,7 @@ mod tests {
+                 transparent_background: Some(true),
+                 failure: None,
+                 saved_path: Some(saved_path),
++                usage: None,
+                 imagegen_request_id: None,
+             })]
+         );
+@@ -2544,6 +2548,7 @@ mod tests {
+                             },
+                         ),
+                         saved_path: Some(test_path_buf("/tmp/ig_123.png").abs()),
++                        usage: None,
+                         imagegen_request_id: None,
+                     }),
+                 ],
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/item.rs b/codex-rs/app-server-protocol/src/protocol/v2/item.rs
+index b983710..498cec0 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/item.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/item.rs
+@@ -993,6 +993,7 @@ impl From<CoreTurnItem> for ThreadItem {
+                     transparent_background: None,
+                     failure: None,
+                     saved_path: image.saved_path,
++                    usage: None,
+                     imagegen_request_id: None,
+                 })
+             }
+diff --git a/codex-rs/app-server/README.md b/codex-rs/app-server/README.md
+index 4fc9588..68716d0 100644
+--- a/codex-rs/app-server/README.md
++++ b/codex-rs/app-server/README.md
+@@ -1,5 +1,12 @@
+ # codex-app-server
+ 
++Local image-usage patch: structured image-generation items include nullable
++`usage`, preserving the standalone Images endpoint's raw token breakdowns.
++Null means the upstream did not provide usage. This is independent of thread
++model token usage and does not change outgoing image requests. Existing rollouts
++without the field remain readable. Read this field from `item/completed`;
++legacy image-generation events do not expose it.
++
+ `codex app-server` is the interface Codex uses to power rich interfaces such as the [Codex VS Code extension](https://marketplace.visualstudio.com/items?itemName=openai.chatgpt).
+ 
+ ## Table of Contents
+diff --git a/codex-rs/app-server/src/request_processors/thread_resume_redaction.rs b/codex-rs/app-server/src/request_processors/thread_resume_redaction.rs
+index 86fe94e..fe8c578 100644
+--- a/codex-rs/app-server/src/request_processors/thread_resume_redaction.rs
++++ b/codex-rs/app-server/src/request_processors/thread_resume_redaction.rs
+@@ -111,6 +111,7 @@ mod tests {
+                 transparent_background: None,
+                 failure: None,
+                 saved_path: Some(test_path_buf("/tmp/ig-1.png").abs()),
++                usage: None,
+                 imagegen_request_id: None,
+             }),
+         ]);
+diff --git a/codex-rs/app-server/tests/suite/v2/imagegen_extension.rs b/codex-rs/app-server/tests/suite/v2/imagegen_extension.rs
+index 1a43813..c27040c 100644
+--- a/codex-rs/app-server/tests/suite/v2/imagegen_extension.rs
++++ b/codex-rs/app-server/tests/suite/v2/imagegen_extension.rs
+@@ -121,6 +121,7 @@ async fn standalone_image_generation_returns_saved_path_hint_to_model() -> Resul
+         status,
+         revised_prompt,
+         result,
++        usage,
+         transparent_background,
+         saved_path: Some(saved_path),
+         ..
+@@ -131,6 +132,13 @@ async fn standalone_image_generation_returns_saved_path_hint_to_model() -> Resul
+     assert_eq!(status, "completed");
+     assert_eq!(revised_prompt.as_deref(), Some("paint a blue whale"));
+     assert_eq!(result, RESULT);
++    assert_eq!(usage, Some(json!({
++        "input_tokens": 21,
++        "output_tokens": 229,
++        "total_tokens": 250,
++        "input_tokens_details": {"text_tokens": 21, "image_tokens": 0},
++        "output_tokens_details": {"text_tokens": 0, "image_tokens": 229},
++    })));
+     assert_eq!(transparent_background, Some(false));
+     assert_eq!(std::fs::read(&saved_path)?, TINY_PNG_BYTES);
+ 
+@@ -429,6 +437,7 @@ async fn standalone_image_generation_failure_emits_terminal_item() -> Result<()>
+             transparent_background: None,
+             failure: None,
+             saved_path: None,
++            usage: None,
+             imagegen_request_id: None,
+         })
+     );
+@@ -940,6 +949,13 @@ async fn mount_image_response_with_background(server: &MockServer, background: &
+                     "created": 1,
+                     "background": background,
+                     "data": [{"b64_json": RESULT}],
++                    "usage": {
++                        "input_tokens": 21,
++                        "output_tokens": 229,
++                        "total_tokens": 250,
++                        "input_tokens_details": {"text_tokens": 21, "image_tokens": 0},
++                        "output_tokens_details": {"text_tokens": 0, "image_tokens": 229},
++                    },
+                 })),
+         )
+         .expect(1)
+diff --git a/codex-rs/codex-api/src/endpoint/images.rs b/codex-rs/codex-api/src/endpoint/images.rs
+index 716e4de..fb63e89 100644
+--- a/codex-rs/codex-api/src/endpoint/images.rs
++++ b/codex-rs/codex-api/src/endpoint/images.rs
+@@ -188,6 +188,13 @@ mod tests {
+     fn expected_response() -> ImageResponse {
+         ImageResponse {
+             created: 1778832973,
++            usage: Some(json!({
++                "input_tokens": 1474,
++                "input_tokens_details": {"image_tokens": 1457, "text_tokens": 17},
++                "output_tokens": 1372,
++                "output_tokens_details": {"image_tokens": 1372, "text_tokens": 0},
++                "total_tokens": 2846,
++            })),
+             background: Some(ImageBackground::Opaque),
+             data: vec![ImageData {
+                 b64_json: "REDACT".to_string(),
+@@ -324,4 +331,13 @@ mod tests {
+             "{message}"
+         );
+     }
++
++    #[test]
++    fn missing_image_usage_remains_unknown() {
++        let response: ImageResponse = serde_json::from_value(json!({
++            "created": 1,
++            "data": [{"b64_json": "REDACT"}],
++        })).expect("parse legacy image response");
++        assert_eq!(response.usage, None);
++    }
+ }
+diff --git a/codex-rs/codex-api/src/images.rs b/codex-rs/codex-api/src/images.rs
+index f915a5f..bee8b54 100644
+--- a/codex-rs/codex-api/src/images.rs
++++ b/codex-rs/codex-api/src/images.rs
+@@ -56,6 +56,9 @@ pub enum ImageQuality {
+ pub struct ImageResponse {
+     pub created: u64,
+     pub data: Vec<ImageData>,
++    /// Raw upstream image usage, including token breakdowns when provided.
++    #[serde(default)]
++    pub usage: Option<serde_json::Value>,
+     #[serde(default)]
+     pub background: Option<ImageBackground>,
+     #[serde(default)]
+diff --git a/codex-rs/core/src/tools/handlers/extension_tools.rs b/codex-rs/core/src/tools/handlers/extension_tools.rs
+index 9a6d56f..c501515 100644
+--- a/codex-rs/core/src/tools/handlers/extension_tools.rs
++++ b/codex-rs/core/src/tools/handlers/extension_tools.rs
+@@ -550,6 +550,7 @@ mod tests {
+             transparent_background: None,
+             failure: None,
+             saved_path: None,
++            usage: None,
+             imagegen_request_id: None,
+         });
+         let expected_completed_item = ExtensionItem::ImageGeneration(ImageGenerationItem {
+@@ -560,6 +561,7 @@ mod tests {
+             transparent_background: Some(true),
+             failure: None,
+             saved_path: Some(expected_path.clone()),
++            usage: None,
+             imagegen_request_id: None,
+         });
+         codex_tools::TurnItemEmitter::emit_started(
+diff --git a/codex-rs/ext/image-generation/src/tool.rs b/codex-rs/ext/image-generation/src/tool.rs
+index 927cf6f..cd0a0b1 100644
+--- a/codex-rs/ext/image-generation/src/tool.rs
++++ b/codex-rs/ext/image-generation/src/tool.rs
+@@ -157,6 +157,7 @@ impl ImageGenerationTool {
+                     transparent_background: None,
+                     failure: None,
+                     saved_path: None,
++                    usage: None,
+                     imagegen_request_id: None,
+                 },
+                 EventMsg::ImageGenerationBegin(ImageGenerationBeginEvent {
+@@ -164,6 +165,7 @@ impl ImageGenerationTool {
+                 }),
+             ))
+             .await;
++        let mut usage = None;
+         let result = match request {
+             ImageRequest::Generate(request) => self.backend.generate(request, &call.turn_id).await,
+             ImageRequest::Edit(request) => self.backend.edit(request, &call.turn_id).await,
+@@ -175,6 +177,7 @@ impl ImageGenerationTool {
+             )
+         })
+         .and_then(|(response, imagegen_request_id)| {
++            usage = response.usage;
+             let transparent_background = match response.background {
+                 Some(ImageBackground::Transparent) => Some(true),
+                 Some(ImageBackground::Opaque) => Some(false),
+@@ -193,6 +196,7 @@ impl ImageGenerationTool {
+                 let item = ImageGenerationItem {
+                     id: call.call_id.clone(),
+                     status: "failed".to_string(),
++                    usage,
+                     revised_prompt: Some(args.prompt),
+                     result: String::new(),
+                     transparent_background: None,
+@@ -218,6 +222,7 @@ impl ImageGenerationTool {
+         let item = ImageGenerationItem {
+             id: call.call_id.clone(),
+             status: "completed".to_string(),
++            usage,
+             revised_prompt: Some(args.prompt),
+             result: result.clone(),
+             transparent_background,
+diff --git a/codex-rs/ext/items/src/image_generation.rs b/codex-rs/ext/items/src/image_generation.rs
+index 35aa5cb..fc21a9d 100644
+--- a/codex-rs/ext/items/src/image_generation.rs
++++ b/codex-rs/ext/items/src/image_generation.rs
+@@ -30,6 +30,9 @@ pub struct ImageGenerationItem {
+     pub status: String,
+     pub revised_prompt: Option<String>,
+     pub result: String,
++    /// Raw upstream image usage. None means unavailable, not zero consumption.
++    #[serde(default)]
++    pub usage: Option<serde_json::Value>,
+     #[serde(default)]
+     #[ts(optional)]
+     pub transparent_background: Option<bool>,
+diff --git a/codex-rs/ext/items/src/tests.rs b/codex-rs/ext/items/src/tests.rs
+index 1ecc621..5b56837 100644
+--- a/codex-rs/ext/items/src/tests.rs
++++ b/codex-rs/ext/items/src/tests.rs
+@@ -17,6 +17,7 @@ fn completed_image_generation_item() -> ExtensionItem {
+         transparent_background: None,
+         failure: None,
+         saved_path: None,
++        usage: None,
+         imagegen_request_id: None,
+     })
+ }
+@@ -36,6 +37,7 @@ fn image_generation_item_preserves_stable_wire_shape() {
+             "result": "cG5n",
+             "transparentBackground": null,
+             "failure": null,
++            "usage": null,
+         })
+     );
+     assert_eq!(
+@@ -74,6 +76,7 @@ fn image_generation_item_preserves_authoritative_transparency() {
+             "result": "cG5n",
+             "transparentBackground": true,
+             "failure": null,
++            "usage": null,
+         })
+     );
+     assert_eq!(
+@@ -90,6 +93,24 @@ fn image_generation_transparency_is_optional_in_typescript() {
+     );
+ }
+ 
++#[test]
++fn image_generation_usage_survives_serialization_with_details() {
++    let ExtensionItem::ImageGeneration(mut image) = completed_image_generation_item() else {
++        panic!("expected image-generation item");
++    };
++    let usage = json!({
++        "input_tokens": 21,
++        "output_tokens": 229,
++        "total_tokens": 250,
++        "output_tokens_details": {"image_tokens": 229, "text_tokens": 0},
++    });
++    image.usage = Some(usage.clone());
++    let item = ExtensionItem::ImageGeneration(image);
++    let wire = serde_json::to_value(&item).expect("serialize image usage");
++    assert_eq!(wire["usage"], usage);
++    assert_eq!(serde_json::from_value::<ExtensionItem>(wire).expect("restore image usage"), item);
++}
++
+ #[test]
+ fn image_generation_request_id_stays_internal() {
+     let ExtensionItem::ImageGeneration(mut image) = completed_image_generation_item() else {
+diff --git a/codex-rs/thread-store/src/local/rollout_migration/legacy_event.rs b/codex-rs/thread-store/src/local/rollout_migration/legacy_event.rs
+index 9f3f8e1..6ae6567 100644
+--- a/codex-rs/thread-store/src/local/rollout_migration/legacy_event.rs
++++ b/codex-rs/thread-store/src/local/rollout_migration/legacy_event.rs
+@@ -167,6 +167,7 @@ pub(super) fn completed_item(
+                 transparent_background: event.transparent_background,
+                 failure: event.failure.clone(),
+                 saved_path: event.saved_path.clone(),
++                usage: None,
+                 imagegen_request_id: None,
+             })),
+             None,
+diff --git a/codex-rs/thread-store/src/local/rollout_migration_tests.rs b/codex-rs/thread-store/src/local/rollout_migration_tests.rs
+index 82339f0..b237463 100644
+--- a/codex-rs/thread-store/src/local/rollout_migration_tests.rs
++++ b/codex-rs/thread-store/src/local/rollout_migration_tests.rs
+@@ -449,6 +449,7 @@ async fn migration_preserves_image_generation_failure_metadata() {
+             resets_at: Some(1_786_150_800),
+         }),
+         saved_path: None,
++        usage: None,
+         imagegen_request_id: None,
+     };
+     let image_completion =
+diff --git a/codex-rs/tui/src/chatwidget/tests/helpers.rs b/codex-rs/tui/src/chatwidget/tests/helpers.rs
+index fa2bafe..67121c9 100644
+--- a/codex-rs/tui/src/chatwidget/tests/helpers.rs
++++ b/codex-rs/tui/src/chatwidget/tests/helpers.rs
+@@ -738,6 +738,7 @@ pub(super) fn handle_image_generation_end(
+                 transparent_background: None,
+                 failure: None,
+                 saved_path,
++                usage: None,
+                 imagegen_request_id: None,
+             }),
+         }),
