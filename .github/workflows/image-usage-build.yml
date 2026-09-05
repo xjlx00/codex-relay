@@ -2,7 +2,7 @@ name: Isolated app-server image usage build
 on:
   push:
     branches: [image-usage-app-server]
-    paths: ['patches/app-server-image-usage/**', '.github/workflows/image-usage-build.yml']
+    paths: ['patches/app-server-image-usage/image-usage.patch', '.github/workflows/image-usage-build.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -64,17 +64,19 @@ jobs:
           export CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL=1
           just test -p codex-app-server-protocol --lib --run-ignored only -E 'test(=schema_fixtures_tests::write_schema_fixtures_from_env)'
           cargo build -p codex-app-server --bin codex-app-server
+          cargo build -p codex-code-mode-host --bin codex-code-mode-host
       - name: Test protocol and image lifecycle
         working-directory: source/codex-rs
         run: |
           just test -p codex-app-server-protocol --lib
-          just test -p codex-app-server --test suite -E 'test(v2::imagegen_extension)'
+          just test -p codex-app-server --test all -E 'test(v2::imagegen_extension)'
       - name: Package isolated build
         run: |
           cp source/codex-rs/target/debug/codex-app-server artifacts/
           strip artifacts/codex-app-server
           cp -r source/codex-rs/app-server-protocol/schema artifacts/
-          git -C source diff > artifacts/complete-source.patch
+          git -C source diff --binary > artifacts/complete-source.patch
+          cp source/LICENSE artifacts/UPSTREAM_LICENSE
           sha256sum artifacts/codex-app-server > artifacts/SHA256SUMS
           echo 52e73e3a548ae5310c7765995b9803dd538b82b0 > artifacts/UPSTREAM_COMMIT
       - uses: actions/upload-artifact@v4
