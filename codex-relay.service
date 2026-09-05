@@ -1,0 +1,43 @@
+[Unit]
+Description=Four-person Codex app-server relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=codex-relay
+Group=codex-relay
+WorkingDirectory=/opt/codex-relay-v2/current
+Environment=CR_CODEX_BIN=/opt/codex-relay-v2/bin/codex-app-server
+Environment=HOME=/var/lib/codex-relay
+Environment=CR_CODEX_HOME=/var/lib/codex-relay/codex
+Environment=CR_WORK_DIR=/var/lib/codex-relay/work
+Environment=CR_DB=/var/lib/codex-relay/relay.sqlite3
+Environment=CR_LISTEN_HOST=127.0.0.1
+Environment=CR_LISTEN_PORT=18021
+Environment=CR_DEFAULT_MODEL=gpt-6-astra
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/codex-relay-v2/venv/bin/python -B -m cr.server
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/codex-relay
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=900M
+TasksMax=256
+LimitNOFILE=4096
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

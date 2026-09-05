@@ -1,0 +1,78 @@
+Codex Relay 接入示例
+默认模型：gpt-6-astra
+默认推理档位：中档（medium）
+
+一、通用客户端 / CC Switch 参数
+
+选择支持 OpenAI Responses API 的客户端，填写：
+
+配置          值
+Base URL      https://relay.yanero.top/v1
+API Key       自己的 userN.txt 中以 cr_ 开头的完整个人密钥
+默认模型      gpt-6-astra
+推理档位      medium（中档）
+API 类型      Responses
+用量管理      https://relay.yanero.top/
+
+Base URL 填到 /v1 即可；客户端会追加 /responses。
+每个人使用自己的个人密钥，管理员密钥用于管理页面。
+
+二、Codex CLI 配置示例
+
+在自己的电脑上编辑 ~/.codex/config.toml。
+Windows 默认路径：C:\Users\你的用户名\.codex\config.toml
+若设置了 CODEX_HOME，则编辑其目录下的 config.toml。
+已有配置请合并修改同名项，保留自己的其他配置；顶层设置放在任何 [表名] 之前。
+
+----- config.toml 示例开始 -----
+model_provider = "yanero_relay"
+model = "gpt-6-astra"
+model_reasoning_effort = "medium"
+web_search = "disabled"
+
+[model_providers.yanero_relay]
+name = "Yanero Relay"
+base_url = "https://relay.yanero.top/v1"
+env_key = "CODEX_RELAY_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+----- config.toml 示例结束 -----
+
+先设置个人密钥，再从同一个终端启动 Codex。
+下面的 cr_替换为自己的完整个人密钥 是占位符，必须替换。
+
+Windows PowerShell（仅当前终端有效）：
+$env:CODEX_RELAY_API_KEY = 'cr_替换为自己的完整个人密钥'
+codex
+
+macOS / Linux（仅当前终端有效）：
+export CODEX_RELAY_API_KEY='cr_替换为自己的完整个人密钥'
+codex
+
+图形客户端若采用 env_key，也需要其进程能读取 CODEX_RELAY_API_KEY。
+已有会话或项目级配置可能覆盖默认模型/档位；请新建会话并检查当前为 gpt-6-astra / medium。
+
+三、最小 Responses 请求示例
+
+请求：POST https://relay.yanero.top/v1/responses
+请求头：Authorization: Bearer cr_替换为自己的完整个人密钥
+请求头：Content-Type: application/json
+请求体：
+{
+  "model": "gpt-6-astra",
+  "reasoning": {"effort": "medium"},
+  "input": "请用一句话介绍你能怎样帮助我编写代码。",
+  "stream": false
+}
+
+四、额度说明
+
+每个人的用量持续累计，不再每周自动归零；由管理员手动重置或修改预算。
+管理员归零后历史统计仍保留，之后产生的新用量继续扣账。
+本中转支持 Responses 子集；文件与命令工具在客户端电脑执行。
+示例关闭服务端 web_search 和 WebSocket，使用 HTTP / SSE。
+具体 Codex 版本的全部工具、远程压缩等功能兼容性仍取决于该版本发出的请求。
+
+配置字段参考（OpenAI 官方文档）：
+https://learn.chatgpt.com/docs/config-file/config-reference
