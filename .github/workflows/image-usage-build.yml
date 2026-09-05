@@ -46,7 +46,7 @@ jobs:
           tool: just@1.51.0,cargo-nextest,uv
       - uses: facebook/install-dotslash@1e4e7b3e07eaca387acb98f1d4720e0bee8dbb6a
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config protobuf-compiler libcap-dev clang cmake
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config protobuf-compiler libcap-dev clang cmake bubblewrap
       - name: Format
         working-directory: source/codex-rs
         run: just fmt
