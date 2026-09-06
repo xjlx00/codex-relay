@@ -44,10 +44,16 @@ class FakeRPC:
         return {}
 
 @pytest.fixture
+def history_store(tmp_path):
+    db=Store(tmp_path/'history.sqlite3'); db.bootstrap()
+    yield db
+    db.close()
+
+@pytest.fixture
 def settings(tmp_path):return Settings(work_dir=str(tmp_path),turn_timeout=2)
 
-async def test_tool_continuation_ownership_and_incremental_accounting(settings):
-    rpc=FakeRPC(); rpc.mode='tool'; b=Bridge(rpc,settings)
+async def test_tool_continuation_ownership_and_incremental_accounting(settings,history_store):
+    rpc=FakeRPC(); rpc.mode='tool'; b=Bridge(rpc,settings,history_store)
     req=normalize({'input':'use tool','tools':[{'type':'function','name':'client_tool'}]},'model1')
     try:
         r1=await b.segment('user1',req,'r1')
@@ -59,33 +65,33 @@ async def test_tool_continuation_ownership_and_incremental_accounting(settings):
         assert cid in b.calls
         r2=await b.segment('user1',continuation,'r2')
         assert r2['usage']['total_tokens']==110 and r2['output'][0]['content'][0]['text']=='Hello'
-        assert [x['type'] for x in b.responses['r2']['history']]==['message','function_call','function_call_output','message']
+        assert [x['type'] for x in history_store.load_history('user1','r2')['history']]==['message','function_call','function_call_output','message']
         assert len([c for c in rpc.calls if c[0]=='turn/start'])==1
         assert not b.sessions and not b.calls
     finally:await b.close(); await rpc.stop()
 
-async def test_previous_response_preserves_roles_and_history(settings):
-    rpc=FakeRPC(); b=Bridge(rpc,settings)
-    await b.segment('u',normalize({'input':'first'},'m'),'first')
-    await b.segment('u',normalize({'input':'second','previous_response_id':'first'},'m'),'second')
+async def test_previous_response_preserves_roles_and_history(settings,history_store):
+    rpc=FakeRPC(); b=Bridge(rpc,settings,history_store)
+    await b.segment('user1',normalize({'input':'first'},'m'),'first')
+    await b.segment('user1',normalize({'input':'second','previous_response_id':'first'},'m'),'second')
     injected=[p for m,p in rpc.calls if m=='thread/inject_items'][-1]['items']
     assert [x['role'] for x in injected]==['user','assistant']
     assert injected[0]['content'][0]['text']=='first'
-    with pytest.raises(BridgeError):await b.segment('other',normalize({'input':'second','previous_response_id':'first'},'m'),'bad')
+    with pytest.raises(BridgeError):await b.segment('user2',normalize({'input':'second','previous_response_id':'first'},'m'),'bad')
     await b.close(); await rpc.stop()
 
-async def test_interruption_wakes_waiter(settings):
-    rpc=FakeRPC(); rpc.mode='hang'; b=Bridge(rpc,settings)
-    task=asyncio.create_task(b.segment('u',normalize({'input':'hello'},'m'),'r'))
+async def test_interruption_wakes_waiter(settings,history_store):
+    rpc=FakeRPC(); rpc.mode='hang'; b=Bridge(rpc,settings,history_store)
+    task=asyncio.create_task(b.segment('user1',normalize({'input':'hello'},'m'),'r'))
     while 'r' not in b.current:await asyncio.sleep(0)
-    await b.interrupt('u','r')
+    await b.interrupt('user1','r')
     with pytest.raises(BridgeError):await asyncio.wait_for(task,.5)
     assert not b.sessions
     await rpc.stop()
 
-async def test_reasoning_preserves_only_public_summary_and_encrypted_history(settings):
-    rpc=FakeRPC(); rpc.mode='reasoning'; b=Bridge(rpc,settings)
-    result=await b.segment('u',normalize({'input':'hello'},'m'),'r')
+async def test_reasoning_preserves_only_public_summary_and_encrypted_history(settings,history_store):
+    rpc=FakeRPC(); rpc.mode='reasoning'; b=Bridge(rpc,settings,history_store)
+    result=await b.segment('user1',normalize({'input':'hello'},'m'),'r')
     reasoning=result['output'][0]
     assert reasoning['encrypted_content']=='opaque' and 'content' not in reasoning
     assert reasoning['summary'][0]['text']=='Public summary'

@@ -8,13 +8,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI,Request,HTTPException,Query
 from fastapi.responses import JSONResponse,StreamingResponse,FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel,Field,ConfigDict
+from pydantic import BaseModel,Field,ConfigDict,field_validator
 from .config import Settings,validate,setup_logging
 from .rpc import AppServer,NotReady,RpcError
 from .store import Store,BudgetError
 from .scheduler import Scheduler,QueueFull
 from .bridge import Bridge,BridgeError
-from .translate import normalize,InputError,uid,sse
+from .translate import normalize,InputError,uid,sse,reservation_size
 from .monitor import UpstreamMonitor
 
 class UserPatch(BaseModel):
@@ -22,6 +22,12 @@ class UserPatch(BaseModel):
     name:str|None=Field(default=None,min_length=1,max_length=40)
     budget:int|None=Field(default=None,ge=0,le=10**12,strict=True)
     active:bool|None=None
+    concurrent_limit:int|None=Field(default=None,ge=1,le=6,strict=True)
+    @field_validator('concurrent_limit')
+    @classmethod
+    def valid_concurrent_limit(cls,value):
+        if value is None:raise ValueError('Concurrent limit must be an integer from 1 to 6')
+        return value
 class Reconcile(BaseModel):
     charge:int=Field(ge=0,le=10**12,strict=True)
 class BulkBudget(BaseModel):
@@ -31,13 +37,17 @@ class BulkBudget(BaseModel):
 def create_app(settings=None,rpc=None,store=None):
     settings=settings or Settings(); rpc=rpc or AppServer(settings)
     db=store; monitor=None; scheduler=Scheduler(settings.concurrent,settings.queue_limit)
-    bridge=Bridge(rpc,settings); upstream_cache={'at':0,'value':None}
+    bridge=Bridge(rpc,settings,db); upstream_cache={'at':0,'value':None}
+    jobs={}
     @asynccontextmanager
     async def lifespan(app):
         nonlocal db,monitor
         if db is None:
             validate(settings); db=Store(settings.db)
-        db.recover(); await rpc.start()
+        bridge.store=db
+        db.recover()
+        for user in db.users():scheduler.set_limit(user['id'],user['concurrent_limit'])
+        await rpc.start()
         monitor=UpstreamMonitor(rpc,db)
         monitor_task=asyncio.create_task(monitor.run())
         async def janitor():
@@ -51,9 +61,11 @@ def create_app(settings=None,rpc=None,store=None):
             with contextlib.suppress(asyncio.CancelledError):await monitor_task
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):await task
+            for job in list(jobs.values()):job['task'].cancel()
+            await asyncio.gather(*(job['task'] for job in list(jobs.values())),return_exceptions=True)
             await bridge.close(); await rpc.stop(); db.close()
     app=FastAPI(lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
-    app.state.bridge=bridge; app.state.scheduler=scheduler
+    app.state.bridge=bridge; app.state.scheduler=scheduler; app.state.jobs=jobs
     assets=Path(__file__).parent/'assets'
     allowed_models={m['slug'] for m in json.loads((Path(__file__).parent/'model_catalog.json').read_text(encoding='utf-8'))['models']}
     app.mount('/assets',StaticFiles(directory=assets),name='assets')
@@ -63,7 +75,7 @@ def create_app(settings=None,rpc=None,store=None):
         # Nginx enforces the same bound; reject oversized local requests too.
         try:
             if int(request.headers.get('content-length','0'))>settings.max_body:
-                return JSONResponse({'error':{'code':'body_too_large','message':'Request exceeds 2 MiB'}},413)
+                return JSONResponse({'error':{'code':'body_too_large','message':f'Request exceeds {settings.max_body} bytes'}},413)
         except ValueError:return JSONResponse({'error':{'code':'bad_content_length'}},400)
         response=await call_next(request)
         response.headers['X-Content-Type-Options']='nosniff'
@@ -80,6 +92,17 @@ def create_app(settings=None,rpc=None,store=None):
         if role and user['role']!=role:raise HTTPException(403,'forbidden')
         return user
 
+    def user_usage(user_id):
+        return {**db.usage(user_id),'concurrency':scheduler.stats(user_id)}
+
+    async def cancel_job(rid,job,reason):
+        job['reason']=reason
+        job['task'].cancel()
+        with contextlib.suppress(asyncio.CancelledError):await job['task']
+        # Cancellation before the coroutine's first step cannot reach its handler.
+        db.finish(rid,'cancelled',error=reason,dispatched=job['dispatched'])
+        jobs.pop(rid,None)
+
     @app.exception_handler(HTTPException)
     async def http_error(request,e):
         return JSONResponse({'error':{'code':str(e.detail),'message':str(e.detail),'type':'relay_error'}},e.status_code)
@@ -87,7 +110,7 @@ def create_app(settings=None,rpc=None,store=None):
     @app.get('/')
     async def index():return FileResponse(assets/'index.html')
     @app.get('/healthz')
-    async def health():return {'ok':rpc.alive(),'version':'0.2.0'}
+    async def health():return {'ok':rpc.alive(),'version':'0.3.0'}
 
     @app.get('/v1/models')
     async def models(request:Request):
@@ -105,15 +128,16 @@ def create_app(settings=None,rpc=None,store=None):
     @app.get('/api/me')
     async def me(request:Request):
         u=auth(request)
-        return {'user':u,'usage':db.usage(u['id']) if u['role']=='user' else None,
+        return {'user':u,'usage':user_usage(u['id']) if u['role']=='user' else None,
+            'concurrency':scheduler.stats() if u['role']=='admin' else scheduler.stats(u['id']),
             'requests':db.recent(u['id']) if u['role']=='user' else db.recent()}
     @app.get('/v1/usage')
     @app.get('/usage')
     async def usage(request:Request):
-        u=auth(request,'user'); return db.usage(u['id'])
+        u=auth(request,'user'); return user_usage(u['id'])
     @app.get('/api/admin/users')
     async def users(request:Request):
-        auth(request,'admin'); return [db.usage(u['id']) for u in db.users()]
+        auth(request,'admin'); return [user_usage(u['id']) for u in db.users()]
     @app.post('/api/admin/usage/reset')
     async def reset_usage(request:Request):
         auth(request,'admin')
@@ -142,10 +166,13 @@ def create_app(settings=None,rpc=None,store=None):
         if user_id not in {u['id'] for u in db.users()}:raise HTTPException(404,'user_not_found')
         update=values.model_dump(exclude_none=True)
         db.update_user(user_id,update)
+        if 'concurrent_limit' in update:scheduler.set_limit(user_id,update['concurrent_limit'])
         if update.get('active') is False:
+            for rid,job in list(jobs.items()):
+                if job['owner']==user_id:await cancel_job(rid,job,'user_disabled')
             for session in list(bridge.sessions.values()):
-                if session.owner==user_id:await bridge.drop(session)
-        return db.usage(user_id)
+                if session.owner==user_id:await bridge.drop(session,'user_disabled')
+        return user_usage(user_id)
     @app.post('/api/admin/users/{user_id}/rotate-key')
     async def rotate(user_id:str,request:Request):
         auth(request,'admin')
@@ -196,20 +223,38 @@ def create_app(settings=None,rpc=None,store=None):
         try:normalized=normalize(body,settings.model)
         except InputError as e:raise HTTPException(400,str(e))
         if normalized['model'] not in allowed_models:raise HTTPException(400,'model_not_supported')
+        try:resolved=bridge.resolve(user['id'],normalized)
+        except BridgeError as e:raise HTTPException(e.status,e.code)
+        except InputError as e:raise HTTPException(400,str(e))
         rid=uid('resp')
         # Input-size admission estimate + bounded output reserve; final charges use official usage.
-        reserve=len(json.dumps([normalized['items'],normalized['dynamic']],ensure_ascii=False).encode())+len(normalized['instructions'].encode())+settings.output_reserve
+        reserve=reservation_size(resolved)+settings.output_reserve
+        if resolved.get('_tool_thread'):normalized['_tool_thread']=resolved['_tool_thread']
+        # Do not keep expanded histories in every queued HTTP request. Reload the
+        # immutable response snapshot once this user receives a generation slot.
+        del resolved
         try:db.reserve(rid,user['id'],normalized['model'],reserve)
         except BudgetError as e:raise HTTPException(429,str(e))
-        queue=asyncio.Queue(256); final=None; error=None; dispatched=False
+        queue=asyncio.Queue(256); final=None; error=None; sequence=0
+        job={'owner':user['id'],'reason':None,'dispatched':False,'task':None}
         def mark_dispatched():
-            nonlocal dispatched
-            dispatched=True
-        async def push(event):await queue.put(event)
+            if job['reason']:raise BridgeError(job['reason'],409)
+            auth(request,'user')
+            job['dispatched']=True
+        async def push(event):
+            nonlocal sequence
+            event['sequence_number']=sequence
+            await queue.put(event)
+            sequence+=1
+        def cancelled_response(reason):
+            return {'id':rid,'object':'response','status':'cancelled','output':[],
+                'model':normalized['model'],'usage':None,'error':{'code':reason,'message':reason}}
         async def work():
-            nonlocal final,error,dispatched
+            nonlocal final,error
+            granted=False
             try:
                 async with scheduler.slot(user['id'],settings.queue_timeout):
+                    granted=True
                     # A queued user may have been disabled or key-revoked in the meantime.
                     auth(request,'user')
                     db.running(rid)
@@ -220,19 +265,30 @@ def create_app(settings=None,rpc=None,store=None):
                         on_dispatch=mark_dispatched,on_usage=lambda u,prior:db.checkpoint(rid,u,prior))
                     db.finish(rid,final['status'],final.get('usage'),(final.get('error') or {}).get('code'))
             except asyncio.CancelledError:
-                db.finish(rid,'cancelled',error='client_disconnected',dispatched=dispatched); raise
+                reason=job['reason'] or 'client_disconnected'
+                db.finish(rid,'cancelled',error=reason,dispatched=job['dispatched'])
+                if job['reason']:final=cancelled_response(reason)
+                else:raise
             except (InputError,BridgeError,QueueFull,asyncio.TimeoutError,HTTPException,NotReady,RpcError) as e:
                 if isinstance(e,InputError):status=400; code=str(e)
                 elif isinstance(e,BridgeError):status=e.status; code=e.code
                 elif isinstance(e,HTTPException):status=e.status_code; code=str(e.detail)
-                elif isinstance(e,(QueueFull,asyncio.TimeoutError)):status=429; code='queue_timeout_or_full'
+                elif isinstance(e,QueueFull):status=429; code='queue_full'
+                elif isinstance(e,asyncio.TimeoutError):
+                    status=504 if granted else 429; code='upstream_timeout' if granted else 'queue_timeout'
                 else:status=502; code='upstream_protocol_error'
-                error=(status,code); db.finish(rid,'failed',error=code,dispatched=dispatched)
+                if code in ('cancelled','user_disabled'):
+                    final=cancelled_response(code)
+                    db.finish(rid,'cancelled',error=code,dispatched=job['dispatched'])
+                else:
+                    error=(status,code); db.finish(rid,'failed',error=code,dispatched=job['dispatched'])
             except Exception:
-                error=(500,'internal_error'); db.finish(rid,'failed',error='internal_error',dispatched=dispatched)
+                error=(500,'internal_error'); db.finish(rid,'failed',error='internal_error',dispatched=job['dispatched'])
+            finally:jobs.pop(rid,None)
+        jobs[rid]=job
+        task=job['task']=asyncio.create_task(work())
         if normalized['stream']:
             async def stream():
-                task=asyncio.create_task(work())
                 try:
                     yield b': connected\n\n'
                     while not task.done() or not queue.empty():
@@ -241,32 +297,44 @@ def create_app(settings=None,rpc=None,store=None):
                             if not task.done():yield b': keepalive\n\n'
                             continue
                         yield sse(ev)
-                    await task
+                    with contextlib.suppress(asyncio.CancelledError):await task
+                    if job['reason'] and final is None:final_response=cancelled_response(job['reason'])
+                    else:final_response=final
+                    if final_response and final_response['status']=='cancelled':
+                        yield sse({'type':'response.failed','sequence_number':sequence,'response':final_response})
                     if error:
-                        yield sse({'type':'response.failed','response':{'id':rid,'object':'response','status':'failed',
+                        yield sse({'type':'response.failed','sequence_number':sequence,'response':{'id':rid,'object':'response','status':'failed',
                            'output':[],'error':{'code':error[1],'message':error[1]},'usage':None}})
                 finally:
                     if not task.done():task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):await task
+                    db.finish(rid,'cancelled',error=job['reason'] or 'client_disconnected',dispatched=job['dispatched'])
+                    jobs.pop(rid,None)
             return StreamingResponse(stream(),media_type='text/event-stream',headers={'X-Request-ID':rid,'X-Accel-Buffering':'no'})
-        task=asyncio.create_task(work())
         try:
             while not task.done():
                 await asyncio.sleep(.1)
                 if await request.is_disconnected():task.cancel(); break
             await task
         except asyncio.CancelledError:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):await task
-            raise
+            if job['reason']:final=cancelled_response(job['reason'])
+            else:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):await task
+                db.finish(rid,'cancelled',error='client_disconnected',dispatched=job['dispatched'])
+                jobs.pop(rid,None)
+                raise
         if error:return JSONResponse({'error':{'code':error[1],'message':error[1],'type':'relay_error'}},error[0])
         return JSONResponse(final,headers={'X-Request-ID':rid})
 
     @app.post('/v1/responses/{response_id}/cancel')
     async def cancel(response_id:str,request:Request):
         u=auth(request,'user')
-        try:await bridge.interrupt(u['id'],response_id)
-        except BridgeError as e:raise HTTPException(e.status,e.code)
+        job=jobs.get(response_id)
+        if job and job['owner']==u['id']:await cancel_job(response_id,job,'cancelled')
+        else:
+            try:await bridge.interrupt(u['id'],response_id)
+            except BridgeError as e:raise HTTPException(e.status,e.code)
         return {'id':response_id,'object':'response','status':'cancelled'}
     return app
 

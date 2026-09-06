@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "requests": [
+    {
+      "status": "completed",
+      "usage": null
+    },
+    {
+      "status": "completed",
+      "usage": {
+        "input_tokens": 484,
+        "output_tokens": 33,
+        "total_tokens": 517,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    }
+  ],
+  "tool_roundtrip": true,
+  "responses_lite": true,
+  "settled": true,
+  "seconds": 6.3
+}

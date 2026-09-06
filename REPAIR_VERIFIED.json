@@ -1,0 +1,47 @@
+{
+  "tests_passed": true,
+  "capacity_passed": true,
+  "live_passed": true,
+  "hashes": {
+    "cr/server.py": "fe69062f49b8259e43ecfe5c0c464e30a92253f068a24050cd48de150492cfad",
+    "cr/translate.py": "2a2c36bb8964d79f63fef0947438298020bc73ee903fac9e66b6abd3b5f6492a",
+    "cr/config.py": "712c943deb3cc6ce601206171a14a22c2316de186c8cd6a4a0a2fe88a5a96e04",
+    "cr/scheduler.py": "5f3ce91ebb5cbf82c19c318de286ee774a2176857988dbe71ee084e636d55cc2",
+    "cr/__init__.py": "f4e53168a5f17db64faf09ee9b6e03f3b3119c88d1bd5e426bac155a3df58b0a",
+    "cr/bridge.py": "2eff5f5e3edee54cf3c34113e9a25d8317c2c81d229e1130719c9013c130f4dd",
+    "cr/monitor.py": "dae1707dc4b18d15f479851f842cf6c6f2f2db253db90611a9ea3693b6e70f4b",
+    "cr/store.py": "2494bee5a030e7799dfded9032c12fd77f45cbe5300c308724763a7c7f7b4115",
+    "cr/manage.py": "5d707e94d03284e086bace3119cbe077a82a09108d2bfd4fd5a8e3d5e54cb2a1",
+    "cr/model_catalog.json": "4c5c855513076d5f191c758f87d929fe4c59dcb3d04e68585b4863ab2541de30",
+    "cr/rpc.py": "c0c120c95813fa486dd36b7a5c1dedff93d343456e68668e0edafd288a9ad277",
+    "cr/assets/style.css": "82b4121a9a04bbe0cdb557a64b01aa6a60f2e1a6caa6159a331e74dcd3a15ccd",
+    "cr/assets/admin.js": "1910dfed28d6cb218f29333e4fc589103a5846e87a3b6a742a4de40a88323fd9",
+    "cr/assets/codex-setup.txt": "c58c27d26617975308de8c522aa0849821935a35e3ce006629a4c77f906ba579",
+    "cr/assets/app.js": "eb72d5c886d554a8cf235f89bb953ac57382c55e4f772bdda5a1a3fac64979c7",
+    "cr/assets/index.html": "ecdde2c678e51180539434f6110aa1219e5b70c8fbd60dab875332378f38622f",
+    "tests/test_bridge_gateway.py": "f76303021dd6546aa9bbbae0fc6a56db520872ffc936406350d1e92ee7d9c444",
+    "tests/test_admin_features.py": "c5822b136ac8e45991d529fc979f5e6aa3482427e9a09ec2653f8a932f16150b",
+    "tests/test_scheduler_limits.py": "e6db04f41016ff7a88a85f3a7c9742501bcfb4ee9ab82a2710514e1679a472d7",
+    "tests/test_context_continuity.py": "d497cb40b33dae1e559e1db8abf0aeccc072adee83a76936bb7332b6c30c9990",
+    "tests/test_translate_fixes.py": "429fc070aaab3ab2dc2308f06c3c0195b7578bb9285013df51e59968acf58ca0",
+    "tests/test_bridge_fixes.py": "c53cdf3624f61a3883e8fe1a7454bcea678cd7b050aef75bef62990e5e8540e0",
+    "tests/test_rpc_fixes.py": "5f9b9a2bf92ffc27ae6a78f9ee6db144f49681e51503a07e72eeba4b561ced03",
+    "tests/test_server_fixes.py": "7ee465da625dd542ae12f39d2c70f87d8e9e711cfdcdc02c8ddc2cb585c9e108",
+    "tests/test_ledger_fixes.py": "1b5b6c824b81858b52747d17540528fddbc14c9fbe12c2fdc0927c375e1020b1",
+    "tests/test_ledger_scheduler.py": "014b0a145279ed9f9a711ea6e3289589ba61bfebdbd14bfbfc1e7efdaa3da536",
+    "tests/test_vision.py": "eebdec0be55a9de4ffffd63402992a76c8c72d436fd619187e2369f5d37c8052",
+    "upgrade_repairs.py": "eb1875f740e63c6b3c59e3a62287ad58d4ffee6cf8e852913eb383e16862915e",
+    "verify_capacity.py": "eeaa4c9a610f4c1161f9522f0da01aaa14d5a3e23004d153b7d4d73ee7f56ff4",
+    "verify_repairs_live.py": "bc7020463d53c0ba5273a30d2da044695a3ccc3bf9768225a9ddbd321b95e4eb",
+    "verify_client_protocol.py": "65a66e72dd7ab2b5b537539ce20347db5a7dd6589005f8587d7b5e9f51617bb7",
+    "verify_vision_client.py": "7222a1a8c735b5fe1401d2ce603c9cf8c723e2c58906a0e8b52e93f8d3fdd7dd"
+  },
+  "post_deploy_documentation_updates": [
+    {
+      "file": "cr/assets/codex-setup.txt",
+      "previous_sha256": "d551cf2e8bc53dce35687e7721b1862b5a2aecf740b7e4bf64e99f3813243126",
+      "sha256": "c58c27d26617975308de8c522aa0849821935a35e3ce006629a4c77f906ba579",
+      "reason": "Clarify classic versus Responses Lite tool flag; business code unchanged"
+    }
+  ]
+}

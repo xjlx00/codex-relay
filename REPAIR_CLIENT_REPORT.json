@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-06",
+  "passed": true,
+  "official_client_version": "codex-cli 0.153.4",
+  "chain": "Official Codex client -> relay -> official app-server -> localhost mock model",
+  "isolation": "Temporary Codex homes, temporary workspaces and test-only relay keys; no subscription credentials or real model requests",
+  "protocol_runs": [
+    {
+      "mode": "Direct tools with isolated client catalog",
+      "responses_lite": false,
+      "model_requests": 10,
+      "two_windows_and_restart": true,
+      "client_tool_round_trip": true,
+      "automatic_compaction_steps": ["tool1", "summary", "tool2"],
+      "command_execution_counts": [1, 1]
+    },
+    {
+      "mode": "Direct tools with Responses Lite and isolated client catalog",
+      "responses_lite": true,
+      "model_requests": 10,
+      "two_windows_and_restart": true,
+      "client_tool_round_trip": true,
+      "automatic_compaction_steps": ["tool1", "summary", "tool2"],
+      "command_execution_counts": [1, 1]
+    },
+    {
+      "mode": "Default model catalog and official Code Mode host",
+      "responses_lite": true,
+      "model_requests": 11,
+      "two_windows_and_restart": true,
+      "client_tool_round_trip": true,
+      "automatic_compaction_steps": ["tool1", "summary", "tool2", "summary"],
+      "command_execution_counts": [1, 1]
+    }
+  ],
+  "vision_run": {
+    "mode": "Direct view_image with Responses Lite and isolated client catalog",
+    "direct_image_input": true,
+    "local_view_image_round_trip": true,
+    "model_requests": 3,
+    "charged_tokens": 330
+  },
+  "outbound_boundary": {
+    "checked": "Mock upstream request bodies and headers",
+    "test_relay_keys_absent": true,
+    "internal_user_budget_metadata_and_admin_name_test_markers_absent": true,
+    "text_verbosity_low_forwarded": true,
+    "scope": "Gateway management metadata boundary; does not establish that upstream cannot identify account sharing"
+  },
+  "limits": [
+    "All model responses and usage were supplied by a localhost mock upstream.",
+    "Default Code Mode was verified for the controlled tool and automatic compaction workflow, not every available tool.",
+    "These runs do not constitute full desktop GUI, real account, production capacity or real upstream acceptance testing."
+  ]
+}

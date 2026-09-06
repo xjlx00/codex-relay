@@ -36,29 +36,32 @@ class AppServer:
             for feature in DISABLED_FEATURES:args+=['-c',f'features.{feature}=false']
             args+=list(s.extra_args)
             self.proc=await asyncio.create_subprocess_exec(s.binary,*args,stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE,env=env,cwd=s.work_dir,limit=8*1024*1024)
+                stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE,env=env,cwd=s.work_dir,
+                limit=s.history_max_bytes_per_user+s.max_body+1024*1024)
             self.generation+=1
             self._reader=asyncio.create_task(self._read(self.proc))
             self._stderr=asyncio.create_task(self._drain(self.proc.stderr))
             try:
-                await self._call('initialize',{'clientInfo':{'name':'codex_relay','title':'Codex Relay','version':'0.2.0'},
+                await self._call('initialize',{'clientInfo':{'name':'codex_relay','title':'Codex Relay','version':'0.3.0'},
                               'capabilities':{'experimentalApi':True}},30)
                 await self._write({'method':'initialized','params':{}}); self.ready=True
             except BaseException:
                 await self.stop(); raise
 
     async def stop(self):
-        self.ready=False
+        self._fail()
         if self.proc and self.proc.returncode is None:
-            self.proc.terminate()
+            with contextlib.suppress(ProcessLookupError):self.proc.terminate()
             try:await asyncio.wait_for(self.proc.wait(),5)
-            except asyncio.TimeoutError:self.proc.kill(); await self.proc.wait()
+            except asyncio.TimeoutError:
+                with contextlib.suppress(ProcessLookupError):self.proc.kill()
+                await self.proc.wait()
         current=asyncio.current_task()
         for task in [self._reader,self._stderr,*list(self._tasks)]:
             if task and task is not current:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError,Exception):await task
-        self._fail(); self.proc=None
+        self._tasks.clear(); self._reader=None; self._stderr=None; self.proc=None
 
     def _fail(self):
         self.ready=False
@@ -66,10 +69,12 @@ class AppServer:
             if not fut.done():fut.set_exception(NotReady('app_server_unavailable'))
         self._pending.clear()
         for tap in list(self._taps):tap.fail()
+        for task in list(self._tasks):
+            if task is not asyncio.current_task():task.cancel()
 
     async def _drain(self,stream):
         # stderr can include user content; drain it without persisting it.
-        while await stream.readline():pass
+        while await stream.read(65536):pass
 
     async def _read(self,proc):
         try:
@@ -87,8 +92,16 @@ class AppServer:
                 elif 'method' in msg:
                     for tap in list(self._taps):tap.push(msg)
         except asyncio.CancelledError:raise
-        except Exception:pass
-        finally:self._fail()
+        except Exception:
+            if proc is self.proc:
+                self._fail()
+                if proc.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):proc.kill()
+            # Drain remaining pipe bytes so wait() cannot deadlock after a
+            # malformed or oversized JSON line stopped normal processing.
+            await self._drain(proc.stdout)
+        finally:
+            if proc is self.proc:self._fail()
 
     async def _handle(self,msg):
         try:
@@ -115,10 +128,13 @@ class AppServer:
         fut=asyncio.get_running_loop().create_future(); self._pending[rid]=fut
         try:
             await self._write({'id':rid,'method':method,'params':params})
-            return await asyncio.wait_for(fut,timeout)
+            done,_=await asyncio.wait((fut,),timeout=timeout)
+            if not done:raise asyncio.TimeoutError()
+            return fut.result()
         finally:
             self._pending.pop(rid,None)
             if not fut.done():fut.cancel()
+            elif not fut.cancelled():fut.exception()
 
     async def call(self,method,params,timeout=60):
         if not self.alive():await self.start()
@@ -129,13 +145,26 @@ class AppServer:
 
 class Tap:
     def __init__(self,server,thread_id):
-        self.server=server; self.thread_id=thread_id; self.q=asyncio.Queue(2048)
+        self.server=server; self.thread_id=thread_id; self.q=asyncio.Queue(2048); self.closed=False
     def push(self,msg):
+        if self.closed:return
         if self.thread_id and msg.get('params',{}).get('threadId')!=self.thread_id:return
         try:self.q.put_nowait(msg)
         except asyncio.QueueFull:self.fail()
     def fail(self):
+        if self.closed:return
+        self.closed=True; self.server._taps.discard(self)
         while not self.q.empty():self.q.get_nowait()
         self.q.put_nowait({'method':'relay/disconnected','params':{}})
-    async def get(self,timeout):return await asyncio.wait_for(self.q.get(),timeout)
-    def close(self):self.server._taps.discard(self)
+    async def get(self,timeout):
+        if self.closed and self.q.empty():return {'method':'relay/disconnected','params':{}}
+        waiter=asyncio.create_task(self.q.get())
+        try:
+            done,_=await asyncio.wait((waiter,),timeout=timeout)
+            if not done:raise asyncio.TimeoutError()
+            return waiter.result()
+        finally:
+            if not waiter.done():
+                waiter.cancel()
+                with contextlib.suppress(asyncio.CancelledError):await waiter
+    def close(self):self.fail()

@@ -20,13 +20,15 @@ class Settings:
     host: str = field(default_factory=lambda: os.getenv('CR_LISTEN_HOST','127.0.0.1'))
     port: int = field(default_factory=lambda: int(os.getenv('CR_LISTEN_PORT','18021')))
     model: str = field(default_factory=lambda: os.getenv('CR_DEFAULT_MODEL','gpt-6-astra'))
-    concurrent: int = 2
+    concurrent: int = 6
     queue_limit: int = 16
     queue_timeout: int = 120
     turn_timeout: int = 600
-    session_ttl: int = 900
-    max_sessions: int = 64
-    max_body: int = 2 * 1024 * 1024
+    tool_wait_timeout: int = 900
+    max_live_sessions_per_user: int = 16
+    history_ttl: int = 7 * 86400
+    history_max_bytes_per_user: int = 100 * 1024 * 1024
+    max_body: int = 20 * 1024 * 1024
     output_reserve: int = 8192
     extra_args: tuple = ()
 

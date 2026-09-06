@@ -1,0 +1,67 @@
+{
+  "status": "passed",
+  "created_at": "2026-09-06T01:12:15.871835+00:00",
+  "binary": "codex-app-server",
+  "standalone": true,
+  "model": "gpt-6-astra",
+  "upstream": "localhost mock Responses; no real subscription or model call",
+  "phases": [
+    {
+      "phase": "default",
+      "max_active_model_requests": 4,
+      "user_limits": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "queued_request_blocked": true,
+      "completed_requests": 5,
+      "image_bytes_per_request": 0,
+      "history_text_bytes_per_request": 0,
+      "gateway_request_bytes_range": [
+        90,
+        90
+      ],
+      "model_request_bytes_range": [
+        2368,
+        2368
+      ]
+    },
+    {
+      "phase": "six",
+      "max_active_model_requests": 6,
+      "user_limits": [
+        3,
+        2,
+        1,
+        1
+      ],
+      "queued_request_blocked": true,
+      "completed_requests": 7,
+      "image_bytes_per_request": 2099567,
+      "history_text_bytes_per_request": 65536,
+      "gateway_request_bytes_range": [
+        2865265,
+        2865265
+      ],
+      "model_request_bytes_range": [
+        2867677,
+        2867677
+      ]
+    }
+  ],
+  "max_active_model_requests": 6,
+  "requests": 12,
+  "tokens_per_request": 110,
+  "ledger_tokens": 1320,
+  "response_and_ledger_ownership": "passed",
+  "cross_user_history": "rejected",
+  "memory": {
+    "python_fixture_peak_rss_bytes": 188923904,
+    "app_server_peak_rss_bytes": 312610816,
+    "sampled_combined_peak_rss_bytes": 498520064,
+    "sample_interval_seconds": 0.05,
+    "scope": "Python includes HTTP fixture and gateway; app-server is one process. Sampled RSS, not total cgroup peak. Six image/context requests, not six 100 MiB histories or real-model capacity."
+  }
+}

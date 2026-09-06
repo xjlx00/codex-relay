@@ -1,0 +1,74 @@
+{
+  "live": true,
+  "requests": [
+    {
+      "id": "resp_91fe414d4099488c91cb2fcb5abd08d2",
+      "usage": {
+        "input_tokens": 201,
+        "output_tokens": 17,
+        "total_tokens": 218,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "text": "The left half is red, and the right half is blue."
+    },
+    {
+      "id": "resp_048813052c9042528b75ebe73772d30e",
+      "usage": {
+        "input_tokens": 237,
+        "output_tokens": 10,
+        "total_tokens": 247,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "text": "The right half was blue."
+    },
+    {
+      "id": "resp_fc6e56b44e3843aaa16676bf507ff009",
+      "usage": null,
+      "text": ""
+    },
+    {
+      "id": "resp_1732e3b429094697bbc5bb2c17298ac8",
+      "usage": {
+        "input_tokens": 538,
+        "output_tokens": 39,
+        "total_tokens": 577,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "text": "The left side is red, and the right side is blue."
+    },
+    {
+      "id": "resp_e3cba1384af946dd8d365deaccea4978",
+      "usage": {
+        "input_tokens": 339,
+        "output_tokens": 11,
+        "total_tokens": 350,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "text": "The right-hand color is blue."
+    }
+  ],
+  "image_bytes": 2097863,
+  "passed": true,
+  "ledger_used": 1392,
+  "other_user_used": 0
+}

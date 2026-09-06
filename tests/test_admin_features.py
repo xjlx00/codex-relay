@@ -21,7 +21,7 @@ def test_reset_preserves_history_meter_and_inflight_new_usage(db):
     db.reserve('live','user1','m',200); db.running('live')
     db.checkpoint('live',{'input_tokens':50,'output_tokens':10})
     db.reset_all_usage()
-    assert db.usage('user1')['used']==0 and db.usage('user1')['held']==200
+    assert db.usage('user1')['used']==0 and db.usage('user1')['held']==140
     assert db.token_counter()==160
     assert db.statistics(0,int(time.time())+2)['users'][0]['total_tokens']==160
     db.checkpoint('live',{'input_tokens':80,'output_tokens':20})

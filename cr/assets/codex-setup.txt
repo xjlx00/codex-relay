@@ -75,11 +75,29 @@ CODEX_RELAY_API_KEY，值为自己的完整个人密钥。
 四、额度说明
 
 每个人的用量持续累计，不再每周自动归零；由管理员手动重置或修改预算。
+总生成并发为 6，个人默认 1；管理员可在后台将个人上限设置为 1–6。
+客户端执行工具时不占生成槽，工具结果回传后重新排队。单会话顺序使用通常不会因个人并发 1 增加等待。
+这不保证与官方登录完全相同；上游负载、限流和网关网络仍会影响速度。
 管理员归零后历史统计仍保留，之后产生的新用量继续扣账。
 本中转支持 Responses 子集；文件与命令工具在客户端电脑执行。
 示例关闭服务端 web_search 和 WebSocket，使用 HTTP / SSE。
 具体 Codex 版本的全部工具、远程压缩等功能兼容性仍取决于该版本发出的请求。
 已验证网关 Responses 和客户端函数往返，尚未完成桌面版全部功能的端到端实测。
 
+五、接入诊断
+
+1. 先检查环境变量是否存在，不要输出密钥本身：
+   PowerShell：Test-Path Env:CODEX_RELAY_API_KEY
+   macOS / Linux：test -n "$CODEX_RELAY_API_KEY" && echo configured
+2. 确认使用自己的个人密钥，Base URL 为 https://relay.yanero.top/v1。
+3. 确认 model_provider 等顶层 TOML 配置位于第一个 [表名] 之前，并使用新会话。
+4. 401 表示密钥失效或用户停用；429 请查看具体错误码，可能是预算不足、排队超时或队列已满。
+5. 历史正文、图片与工具结果最多保留 7 天，每人 100 MiB，容量满时会提前清理。
+   response_history_required 表示需由客户端提交完整历史；continuation_lost 表示等待中的工具会话已失效。
+6. 经典格式带顶层 tools 且 parallel_tool_calls=false 目前不支持，会明确报错；没有工具的压缩请求可使用 false。
+
 配置字段参考（OpenAI 官方文档）：
 https://learn.chatgpt.com/docs/config-file/config-reference
+
+
+Codex 新版 Responses Lite 兼容：接受首个 developer additional_tools 包装，将其中工具声明经过原有客户端工具校验与别名映射后使用，不把原名工具重复暴露给上游。Codex 在该协议自动发送 parallel_tool_calls=false；网关按协议适配，不能将此固定值视作用户要求工具串行。经典格式带顶层 tools 且 false 仍明确拒绝。此区别不影响全局及个人生成并发限制。

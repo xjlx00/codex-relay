@@ -1,10 +1,15 @@
-"""Transactional per-person ledger. No prompts or plaintext keys in SQLite."""
+"""Per-person ledger and bounded response history. Never store plaintext keys."""
 import hashlib
+import json
 import secrets
 import sqlite3
 import time
 
 class BudgetError(Exception):pass
+
+class HistoryError(Exception):
+    def __init__(self,code,status):
+        self.code=code; self.status=status; super().__init__(code)
 
 class Store:
     def __init__(self,path):
@@ -24,15 +29,53 @@ class Store:
         CREATE INDEX IF NOT EXISTS requests_created ON requests(created);
         CREATE TABLE IF NOT EXISTS admin_actions(id INTEGER PRIMARY KEY,created REAL NOT NULL,action TEXT NOT NULL,value INTEGER);
         CREATE TABLE IF NOT EXISTS meter(id INTEGER PRIMARY KEY CHECK(id=1),tokens INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS response_history(
+          response_id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),
+          history TEXT NOT NULL,bytes INTEGER NOT NULL,created REAL NOT NULL,expires REAL NOT NULL,
+          pending INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS response_history_owner_created ON response_history(user_id,created);
+        CREATE INDEX IF NOT EXISTS response_history_expires ON response_history(expires);
         ''')
         columns={r['name'] for r in self.db.execute('PRAGMA table_info(requests)')}
+        user_columns={r['name'] for r in self.db.execute('PRAGMA table_info(users)')}
         with self.db:
+            if 'concurrent_limit' not in user_columns:
+                self.db.execute('ALTER TABLE users ADD COLUMN concurrent_limit INTEGER NOT NULL DEFAULT 1 CHECK(concurrent_limit BETWEEN 1 AND 6)')
             if 'forgiven' not in columns:self.db.execute('ALTER TABLE requests ADD COLUMN forgiven INTEGER NOT NULL DEFAULT 0')
             if 'metered' not in columns:
                 self.db.execute('ALTER TABLE requests ADD COLUMN metered INTEGER NOT NULL DEFAULT 0')
                 self.db.execute('UPDATE requests SET metered=charged')
             self.db.execute('INSERT OR IGNORE INTO meter SELECT 1,COALESCE(SUM(metered),0) FROM requests')
     def close(self):self.db.close()
+    def cleanup_history(self):
+        with self.db:self.db.execute('DELETE FROM response_history WHERE expires<=?',(time.time(),))
+
+    def save_history(self,uid,rid,items,ttl,max_bytes,pending=False):
+        history=json.dumps(items,ensure_ascii=False,separators=(',',':'))
+        size=len(history.encode('utf-8'))
+        if size>max_bytes:raise HistoryError('response_history_capacity',413)
+        now=time.time()
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            self.db.execute('DELETE FROM response_history WHERE expires<=?',(now,))
+            used=self.db.execute('SELECT COALESCE(SUM(bytes),0) FROM response_history WHERE user_id=?',(uid,)).fetchone()[0]
+            if used+size>max_bytes:
+                rows=self.db.execute('SELECT response_id,bytes FROM response_history WHERE user_id=? ORDER BY created,rowid',(uid,)).fetchall()
+                for old in rows:
+                    self.db.execute('DELETE FROM response_history WHERE response_id=? AND user_id=?',(old['response_id'],uid))
+                    used-=old['bytes']
+                    if used+size<=max_bytes:break
+            self.db.execute('INSERT INTO response_history VALUES(?,?,?,?,?,?,?)',
+                (rid,uid,history,size,now,now+ttl,int(pending)))
+
+    def load_history(self,uid,rid):
+        row=self.db.execute('SELECT history,pending,expires FROM response_history WHERE response_id=? AND user_id=?',(rid,uid)).fetchone()
+        if row and row['expires']>time.time():
+            return {'history':json.loads(row['history']),'pending':bool(row['pending'])}
+        # The durable ledger retains ownership after history has expired/been evicted.
+        known=row or self.db.execute('SELECT 1 FROM requests WHERE id=? AND user_id=?',(rid,uid)).fetchone()
+        if known:raise HistoryError('response_history_required',409)
+        raise HistoryError('previous_response_not_found',404)
     def bootstrap(self,budget=500000000):
         if self.db.execute('SELECT 1 FROM users LIMIT 1').fetchone():return None
         keys={}
@@ -43,15 +86,15 @@ class Store:
                   (uid,name,hashlib.sha256(key.encode()).hexdigest(),role,budget if role=='user' else 0)); keys[uid]=key
         return keys
     def authenticate(self,key):
-        row=self.db.execute('SELECT id,name,role,budget,active FROM users WHERE key_hash=? AND active=1',
+        row=self.db.execute('SELECT id,name,role,budget,active,concurrent_limit FROM users WHERE key_hash=? AND active=1',
              (hashlib.sha256(key.encode()).hexdigest(),)).fetchone()
         return dict(row) if row else None
     def users(self):
-        return [dict(r) for r in self.db.execute("SELECT id,name,role,budget,active FROM users WHERE role='user' ORDER BY id")]
+        return [dict(r) for r in self.db.execute("SELECT id,name,role,budget,active,concurrent_limit FROM users WHERE role='user' ORDER BY id")]
     def usage(self,uid):
-        user=self.db.execute('SELECT id,name,budget,active FROM users WHERE id=?',(uid,)).fetchone()
+        user=self.db.execute('SELECT id,name,budget,active,concurrent_limit FROM users WHERE id=?',(uid,)).fetchone()
         row=self.db.execute('''SELECT COUNT(*) request_count,COALESCE(SUM(MAX(0,charged-forgiven)),0) used,
-          COALESCE(SUM(reserved),0) held,COALESCE(SUM(input),0) input_tokens,
+          COALESCE(SUM(MAX(0,reserved-charged)),0) held,COALESCE(SUM(input),0) input_tokens,
           COALESCE(SUM(cached),0) cached_tokens,COALESCE(SUM(output),0) output_tokens,
           COALESCE(SUM(status='unknown'),0) unresolved FROM requests WHERE user_id=?''',(uid,)).fetchone()
         result={**dict(user),**dict(row),'period_start':None,'resets_at':None,'reset_policy':'manual'}
@@ -99,6 +142,8 @@ class Store:
         inp=max(0,int(usage['input_tokens'])); out=max(0,int(usage['output_tokens']))
         cached=max(0,min(inp,int(usage.get('input_tokens_details',{}).get('cached_tokens',0))))
         with self.db:
+            row=self.db.execute('SELECT user_id,status FROM requests WHERE id=?',(rid,)).fetchone()
+            if not row or row['status']!='running':return False
             self._meter(rid,inp+out)
             # Some app-server versions report the model's usage only after a dynamic
             # tool returns. The new cumulative report includes these earlier segments.
@@ -107,8 +152,13 @@ class Store:
                     (prior,rid))
             self.db.execute("UPDATE requests SET charged=?,input=?,cached=?,output=? WHERE id=? AND status='running'",
                 (inp+out,inp,cached,out,rid))
-        row=self.db.execute('SELECT user_id FROM requests WHERE id=?',(rid,)).fetchone()
-        return self.usage(row['user_id'])['remaining']>0
+        # reserved remains the original reservation in SQLite, so existing ledgers
+        # need no destructive migration. Only the unspent portion is still held.
+        user=self.usage(row['user_id'])
+        own=self.db.execute('SELECT MAX(0,reserved-charged) FROM requests WHERE id=?',(rid,)).fetchone()[0]
+        # Already admitted work may consume its own reservation. Other requests'
+        # holds remain protected; consuming exactly the budget is still valid.
+        return bool(user['active']) and user['used']+user['held']-own<=user['budget']
     def finish(self,rid,status,usage=None,error=None,dispatched=True):
         with self.db:
             row=self.db.execute('SELECT * FROM requests WHERE id=?',(rid,)).fetchone()
@@ -126,14 +176,19 @@ class Store:
             self.db.execute("UPDATE requests SET status='cancelled',reserved=0,error='service_restart' WHERE status='queued'")
             self.db.execute("UPDATE requests SET status='unknown',error='service_restart' WHERE status='running'")
     def recent(self,uid=None):
-        fields='id,user_id,model,created,status,charged,reserved,input,cached,output,authoritative,error'
+        fields='id,user_id,model,created,status,charged,MAX(0,reserved-charged) AS reserved,input,cached,output,authoritative,error'
         if uid:rows=self.db.execute(f'SELECT {fields} FROM requests WHERE user_id=? ORDER BY created DESC LIMIT 60',(uid,))
         else:rows=self.db.execute(f'SELECT {fields} FROM requests ORDER BY created DESC LIMIT 120')
         return [dict(r) for r in rows]
     def update_user(self,uid,values):
-        allowed={k:v for k,v in values.items() if k in ('name','budget','active')}
+        allowed={k:v for k,v in values.items() if k in ('name','budget','active','concurrent_limit')}
+        if 'concurrent_limit' in allowed:
+            limit=allowed['concurrent_limit']
+            if isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=6:raise ValueError('Invalid concurrency limit')
         if not allowed:return
-        with self.db:self.db.execute('UPDATE users SET '+','.join(k+'=?' for k in allowed)+" WHERE id=? AND role='user'",(*allowed.values(),uid))
+        with self.db:
+            cur=self.db.execute('UPDATE users SET '+','.join(k+'=?' for k in allowed)+" WHERE id=? AND role='user'",(*allowed.values(),uid))
+        return self.usage(uid) if cur.rowcount else None
     def rotate(self,uid):
         key='cr_'+secrets.token_urlsafe(32)
         with self.db:

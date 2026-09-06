@@ -44,7 +44,7 @@ def test_restart_preserves_unknown_usage_and_reconciliation(ledger):
     db.reserve('queued','user1','model',100); db.reserve('running','user1','model',400)
     db.running('running'); db.checkpoint('running',{'input_tokens':200,'output_tokens':10})
     db.recover(); u=db.usage('user1')
-    assert (u['used'],u['held'],u['unresolved'])==(210,400,1)
+    assert (u['used'],u['held'],u['unresolved'])==(210,190,1)
     assert db.reconcile('running',250)
     assert not db.reconcile('running',0)
     assert db.usage('user1')['used']==250 and db.usage('user1')['held']==0

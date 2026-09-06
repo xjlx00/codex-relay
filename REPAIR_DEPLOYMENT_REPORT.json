@@ -1,0 +1,15 @@
+{
+  "deployed": "/opt/codex-relay-v2/releases/repair-20260906",
+  "previous": "/opt/codex-relay-v2/releases/vision-20260906",
+  "backup": "/opt/codex-relay-backups/repair-20260906-011354",
+  "ledger_preserved": true,
+  "global_limit": 6,
+  "user_limits": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "service_active": true,
+  "nrestarts": 0
+}

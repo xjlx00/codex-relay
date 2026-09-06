@@ -1,0 +1,21 @@
+{
+  "health": {
+    "ok": true,
+    "version": "0.3.0"
+  },
+  "global_limit": 6,
+  "user_limits": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "users_and_admin_access": true,
+  "passed": true,
+  "sse_sequence": true,
+  "lite_prefix": true,
+  "request_id": "resp_f3860430d54a4e3ca8fc21e92a5236ea",
+  "charged": 163,
+  "remaining_hold": 0,
+  "seconds": 3.92
+}

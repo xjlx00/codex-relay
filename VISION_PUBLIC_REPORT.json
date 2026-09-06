@@ -1,0 +1,40 @@
+{
+  "passed": true,
+  "url": "https://relay.yanero.top",
+  "user": "user1",
+  "requests": [
+    {
+      "id": "resp_5b7134d543ae48dca93ca864ec416b5a",
+      "usage": {
+        "input_tokens": 199,
+        "output_tokens": 12,
+        "total_tokens": 211,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "text": "Left: red. Right: blue.",
+      "request_bytes": 2797439
+    },
+    {
+      "id": "resp_eb2fce3457bc4973b53b0554feac2570",
+      "usage": {
+        "input_tokens": 228,
+        "output_tokens": 6,
+        "total_tokens": 234,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "text": "Blue.",
+      "request_bytes": 186
+    }
+  ],
+  "charged": 445
+}
