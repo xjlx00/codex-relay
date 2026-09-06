@@ -1,7 +1,6 @@
 # Codex Relay：四人私人中转
 
-基于官方 `codex-app-server 0.153.2` 的 Responses 网关。默认模型 `gpt-6-astra`，4 个独立用户；另有独立管理员密钥。初始化预算默认每人 500,000,000 token，可由管理员修改。2026-09-05 最近一次部署核验为每人 400,000,000 token，实际值以管理页面为准。
-
+基于官方 `codex-app-server 0.153.2` 的 Responses 网关。默认模型 `gpt-6-astra`，4 个独立用户；另有独立管理员密钥，可由管理员修改。
 - 用量及管理页面：<https://relay.yanero.top/>
 - API Base URL：`https://relay.yanero.top/v1`
 - 接入说明：[USERS.md](USERS.md)
